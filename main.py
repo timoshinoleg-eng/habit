@@ -15,6 +15,7 @@ from aiogram.types import BotCommand
 from app.config import settings
 from app.handlers import common_router, habits_router, ai_router
 from app.middlewares import ServicesMiddleware
+from app.middlewares.fsm_timeout import FSMTimeoutMiddleware
 from app.services import DatabaseService, AIService, ReminderService
 from app.utils import setup_logging
 
@@ -68,6 +69,11 @@ async def main() -> None:
     logger.info("Reminder service started")
     
     # Регистрация middleware
+    # FSM таймаут (должен быть первым для проверки истечения)
+    dp.message.middleware(FSMTimeoutMiddleware(timeout_minutes=10))
+    dp.callback_query.middleware(FSMTimeoutMiddleware(timeout_minutes=10))
+    
+    # DI сервисы
     dp.message.middleware(
         ServicesMiddleware(db_service, ai_service, reminder_service)
     )

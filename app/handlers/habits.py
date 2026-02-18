@@ -14,6 +14,16 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.services.database import DatabaseService
+from app.middlewares.fsm_timeout import FSMStateHistory
+from app.keyboards.fsm_keyboards import (
+    get_fsm_cancel_only_keyboard,
+    get_fsm_navigation_keyboard,
+    get_emoji_selection_keyboard,
+    get_frequency_selection_keyboard,
+    get_time_selection_keyboard,
+    get_confirmation_keyboard,
+    get_invalid_input_keyboard
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -42,11 +52,23 @@ class EditHabitFSM(StatesGroup):
 @router.message(Command("add_habit"))
 async def cmd_add_habit(message: types.Message, state: FSMContext) -> None:
     """Начало добавления привычки."""
+    # Очищаем предыдущие данные FSM
+    await state.clear()
+    
+    # Устанавливаем состояние
     await state.set_state(AddHabitFSM.name)
+    
+    # Сохраняем начальное состояние в историю
+    await FSMStateHistory.push_state(state, "name")
+    
+    keyboard = get_fsm_cancel_only_keyboard(cancel_callback="fsm:cancel")
+    
     await message.answer(
         "📝 <b>Добавление новой привычки</b>\n\n"
         "Шаг 1/5: Введи название привычки\n"
-        "<i>Например: 'Утренняя зарядка' или 'Читать 30 минут'</i>",
+        "<i>Например: 'Утренняя зарядка' или 'Читать 30 минут'</i>\n\n"
+        "❌ Нажми 'Отмена' для выхода",
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
 
@@ -191,32 +213,55 @@ async def callback_cancel_add_habit(callback: types.CallbackQuery, state: FSMCon
 
 @router.message(AddHabitFSM.name)
 async def process_habit_name(message: types.Message, state: FSMContext) -> None:
-    """Обработка названия привычки."""
-    name = message.text.strip()
-    
-    if len(name) < 2 or len(name) > 100:
+    """Обработка названия привычки с улучшенной валидацией."""
+    # Проверяем, не является ли сообщение командой
+    if message.text and message.text.startswith('/'):
         await message.answer(
-            "❌ Название должно быть от 2 до 100 символов.\n"
-            "Попробуй ещё раз:"
+            "❌ Пожалуйста, сначала завершите добавление привычки или нажмите 'Отмена'",
+            reply_markup=get_fsm_cancel_only_keyboard(cancel_callback="fsm:cancel")
         )
         return
     
+    name = message.text.strip() if message.text else ""
+    
+    # Валидация
+    errors = []
+    if len(name) < 2:
+        errors.append("• Название слишком короткое (минимум 2 символа)")
+    if len(name) > 100:
+        errors.append("• Название слишком длинное (максимум 100 символов)")
+    if name.startswith('/') or name.startswith('!'):
+        errors.append("• Название не должно начинаться со спецсимволов")
+    
+    if errors:
+        error_text = "❌ <b>Ошибка в названии:</b>\n\n" + "\n".join(errors)
+        error_text += "\n\nПожалуйста, введи другое название:"
+        
+        keyboard = get_invalid_input_keyboard(
+            hint="2-100 символов",
+            back_callback="fsm:cancel",
+            cancel_callback="fsm:cancel"
+        )
+        await message.answer(error_text, reply_markup=keyboard, parse_mode="HTML")
+        return
+    
+    # Сохраняем данные и переходим к следующему шагу
     await state.update_data(name=name)
     await state.set_state(AddHabitFSM.description)
     
+    # Сохраняем состояние в историю
+    await FSMStateHistory.push_state(state, "description", {"name": name})
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="Пропустить »",
-                callback_data="skip_description"
-            )
-        ]
+        [InlineKeyboardButton(text="Пропустить »", callback_data="skip_description")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="fsm:cancel")]
     ])
     
     await message.answer(
         f"✅ Название: <b>{name}</b>\n\n"
         f"Шаг 2/5: Добавь описание (необязательно)\n"
-        f"<i>Например: 'Делаю 15 приседаний и 10 отжиманий'</i>",
+        f"<i>Например: 'Делаю 15 приседаний и 10 отжиманий'</i>\n\n"
+        f"Или нажми 'Пропустить' чтобы перейти дальше",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
@@ -225,150 +270,296 @@ async def process_habit_name(message: types.Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "skip_description", AddHabitFSM.description)
 async def callback_skip_description(callback: types.CallbackQuery, state: FSMContext) -> None:
     """Пропуск описания."""
+    await callback.answer()
+    
+    # Получаем текущие данные
+    data = await state.get_data()
+    
     await state.update_data(description=None)
     await state.set_state(AddHabitFSM.emoji)
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅", callback_data="emoji:✅"),
-            InlineKeyboardButton(text="💪", callback_data="emoji:💪"),
-            InlineKeyboardButton(text="🏃", callback_data="emoji:🏃"),
-            InlineKeyboardButton(text="📚", callback_data="emoji:📚"),
-        ],
-        [
-            InlineKeyboardButton(text="💧", callback_data="emoji:💧"),
-            InlineKeyboardButton(text="🧘", callback_data="emoji:🧘"),
-            InlineKeyboardButton(text="🥗", callback_data="emoji:🥗"),
-            InlineKeyboardButton(text="💊", callback_data="emoji:💊"),
-        ],
-        [
-            InlineKeyboardButton(text="🎯", callback_data="emoji:🎯"),
-            InlineKeyboardButton(text="⭐", callback_data="emoji:⭐"),
-            InlineKeyboardButton(text="🔥", callback_data="emoji:🔥"),
-            InlineKeyboardButton(text="❤️", callback_data="emoji:❤️"),
-        ]
-    ])
+    # Сохраняем состояние в историю
+    await FSMStateHistory.push_state(state, "emoji", {**data, "description": None})
+    
+    keyboard = get_emoji_selection_keyboard(
+        back_callback="fsm:back",
+        cancel_callback="fsm:cancel"
+    )
     
     await callback.message.edit_text(
-        "Шаг 3/5: Выбери эмодзи для привычки:",
-        reply_markup=keyboard
+        "Шаг 3/5: Выбери эмодзи для привычки:\n\n"
+        "<i>Или используй кнопки навигации</i>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
     )
-    await callback.answer()
 
 
 @router.message(AddHabitFSM.description)
 async def process_habit_description(message: types.Message, state: FSMContext) -> None:
-    """Обработка описания привычки."""
-    description = message.text.strip()
-    
-    if len(description) > 500:
-        await message.answer("❌ Описание слишком длинное (макс. 500 символов). Попробуй ещё раз:")
+    """Обработка описания привычки с улучшенной валидацией."""
+    # Проверяем, не является ли сообщение командой
+    if message.text and message.text.startswith('/'):
+        await message.answer(
+            "❌ Пожалуйста, используй кнопки или введи описание",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Пропустить »", callback_data="skip_description")],
+                [InlineKeyboardButton(text="❌ Отмена", callback_data="fsm:cancel")]
+            ])
+        )
         return
+    
+    description = message.text.strip() if message.text else ""
+    
+    # Валидация описания
+    if len(description) > 500:
+        keyboard = get_invalid_input_keyboard(
+            hint="Максимум 500 символов",
+            back_callback="fsm:back",
+            cancel_callback="fsm:cancel"
+        )
+        await message.answer(
+            "❌ <b>Описание слишком длинное</b>\n\n"
+            f"У тебя {len(description)} символов, максимум 500.\n"
+            "Пожалуйста, сократи описание:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        return
+    
+    # Получаем текущие данные
+    data = await state.get_data()
     
     await state.update_data(description=description)
     await state.set_state(AddHabitFSM.emoji)
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅", callback_data="emoji:✅"),
-            InlineKeyboardButton(text="💪", callback_data="emoji:💪"),
-            InlineKeyboardButton(text="🏃", callback_data="emoji:🏃"),
-            InlineKeyboardButton(text="📚", callback_data="emoji:📚"),
-        ],
-        [
-            InlineKeyboardButton(text="💧", callback_data="emoji:💧"),
-            InlineKeyboardButton(text="🧘", callback_data="emoji:🧘"),
-            InlineKeyboardButton(text="🥗", callback_data="emoji:🥗"),
-            InlineKeyboardButton(text="💊", callback_data="emoji:💊"),
-        ],
-        [
-            InlineKeyboardButton(text="🎯", callback_data="emoji:🎯"),
-            InlineKeyboardButton(text="⭐", callback_data="emoji:⭐"),
-            InlineKeyboardButton(text="🔥", callback_data="emoji:🔥"),
-            InlineKeyboardButton(text="❤️", callback_data="emoji:❤️"),
-        ]
-    ])
+    # Сохраняем состояние в историю
+    await FSMStateHistory.push_state(state, "emoji", {**data, "description": description})
+    
+    keyboard = get_emoji_selection_keyboard(
+        back_callback="fsm:back",
+        cancel_callback="fsm:cancel"
+    )
     
     await message.answer(
         "✅ Описание сохранено!\n\n"
-        "Шаг 3/5: Выбери эмодзи для привычки:",
-        reply_markup=keyboard
+        "Шаг 3/5: Выбери эмодзи для привычки:\n\n"
+        "<i>Используй кнопки навигации если нужно</i>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
     )
 
 
 @router.callback_query(F.data.startswith("emoji:"), AddHabitFSM.emoji)
 async def process_habit_emoji(callback: types.CallbackQuery, state: FSMContext) -> None:
     """Обработка выбора эмодзи."""
+    await callback.answer()
+    
     emoji = callback.data.split(":")[1]
+    
+    # Получаем текущие данные
+    data = await state.get_data()
+    
     await state.update_data(emoji=emoji)
     await state.set_state(AddHabitFSM.frequency)
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="📅 Каждый день",
-                callback_data="freq:daily"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="📆 По будням",
-                callback_data="freq:weekdays"
-            ),
-            InlineKeyboardButton(
-                text="🎉 По выходным",
-                callback_data="freq:weekends"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="🗓 Раз в неделю",
-                callback_data="freq:weekly"
-            )
-        ]
-    ])
+    # Сохраняем состояние в историю
+    await FSMStateHistory.push_state(state, "frequency", {**data, "emoji": emoji})
+    
+    keyboard = get_frequency_selection_keyboard(
+        back_callback="fsm:back",
+        cancel_callback="fsm:cancel"
+    )
     
     await callback.message.edit_text(
         f"{emoji} Отлично!\n\n"
-        f"Шаг 4/5: Выбери частоту выполнения:",
-        reply_markup=keyboard
+        f"Шаг 4/5: Выбери частоту выполнения:\n\n"
+        f"<i>Можно вернуться назад если передумал</i>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
     )
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("freq:"), AddHabitFSM.frequency)
 async def process_habit_frequency(callback: types.CallbackQuery, state: FSMContext) -> None:
     """Обработка выбора частоты."""
+    await callback.answer()
+    
     frequency = callback.data.split(":")[1]
+    
+    # Получаем текущие данные
+    data = await state.get_data()
+    
     await state.update_data(frequency=frequency)
     await state.set_state(AddHabitFSM.reminder_time)
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="🌅 Утро (07:00)",
-                callback_data="time:07:00"
-            ),
-            InlineKeyboardButton(
-                text="🌇 Вечер (20:00)",
-                callback_data="time:20:00"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="Без напоминания",
-                callback_data="time:none"
-            )
-        ]
-    ])
+    # Сохраняем состояние в историю
+    await FSMStateHistory.push_state(state, "reminder_time", {**data, "frequency": frequency})
+    
+    keyboard = get_time_selection_keyboard(
+        back_callback="fsm:back",
+        cancel_callback="fsm:cancel"
+    )
     
     await callback.message.edit_text(
-        "Шаг 5/5: Когда напоминать о привычке?\n"
-        "<i>Или введи время в формате ЧЧ:ММ (например: 08:30)</i>",
+        "Шаг 5/5: Когда напоминать о привычке?\n\n"
+        "<i>• Выбери готовое время или</i>\n"
+        "<i>• Введи вручную в формате ЧЧ:ММ (например: 08:30)</i>",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+
+
+# ==================== FSM Navigation Handlers ====================
+
+@router.callback_query(F.data == "fsm:cancel")
+async def callback_fsm_cancel(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """Отмена FSM диалога."""
+    current_state = await state.get_state()
+    
+    if current_state:
+        # Очищаем FSM
+        await state.clear()
+        await callback.message.edit_text(
+            "❌ Добавление привычки отменено.\n\n"
+            "Все данные сброшены. Начни заново если хочешь создать привычку!",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="➕ Добавить привычку", callback_data="add_habit")],
+                [InlineKeyboardButton(text="« В меню", callback_data="back_to_menu")]
+            ])
+        )
+    else:
+        await callback.answer("Нечего отменять", show_alert=True)
+
+
+@router.callback_query(F.data == "fsm:back")
+async def callback_fsm_back(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """Возврат к предыдущему шагу FSM."""
+    from app.middlewares.fsm_timeout import FSMStateHistory
+    
+    # Получаем предыдущее состояние из истории
+    previous = await FSMStateHistory.pop_state(state)
+    
+    if not previous:
+        await callback.answer("Нельзя вернуться назад - это первый шаг", show_alert=True)
+        return
+    
     await callback.answer()
+    
+    prev_state = previous["state"]
+    prev_data = previous.get("data", {})
+    
+    # Восстанавливаем данные
+    await state.update_data(**prev_data)
+    
+    # Переходим в предыдущее состояние
+    if prev_state == "name":
+        await state.set_state(AddHabitFSM.name)
+        keyboard = get_fsm_cancel_only_keyboard(cancel_callback="fsm:cancel")
+        await callback.message.edit_text(
+            "📝 <b>Добавление новой привычки</b>\n\n"
+            "Шаг 1/5: Введи название привычки\n"
+            "<i>Например: 'Утренняя зарядка' или 'Читать 30 минут'</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    
+    elif prev_state == "description":
+        await state.set_state(AddHabitFSM.description)
+        name = prev_data.get("name", "")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Пропустить »", callback_data="skip_description")],
+            [
+                InlineKeyboardButton(text="◀️ Назад", callback_data="fsm:back"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="fsm:cancel")
+            ]
+        ])
+        await callback.message.edit_text(
+            f"✅ Название: <b>{name}</b>\n\n"
+            f"Шаг 2/5: Добавь описание (необязательно)\n"
+            f"<i>Например: 'Делаю 15 приседаний и 10 отжиманий'</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    
+    elif prev_state == "emoji":
+        await state.set_state(AddHabitFSM.emoji)
+        selected_emoji = prev_data.get("emoji")
+        keyboard = get_emoji_selection_keyboard(
+            selected_emoji=selected_emoji,
+            back_callback="fsm:back",
+            cancel_callback="fsm:cancel"
+        )
+        await callback.message.edit_text(
+            "Шаг 3/5: Выбери эмодзи для привычки:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    
+    elif prev_state == "frequency":
+        await state.set_state(AddHabitFSM.frequency)
+        emoji = prev_data.get("emoji", "✅")
+        selected_freq = prev_data.get("frequency")
+        keyboard = get_frequency_selection_keyboard(
+            selected_frequency=selected_freq,
+            back_callback="fsm:back",
+            cancel_callback="fsm:cancel"
+        )
+        await callback.message.edit_text(
+            f"{emoji} Отлично!\n\n"
+            f"Шаг 4/5: Выбери частоту выполнения:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    
+    elif prev_state == "reminder_time":
+        await state.set_state(AddHabitFSM.reminder_time)
+        keyboard = get_time_selection_keyboard(
+            back_callback="fsm:back",
+            cancel_callback="fsm:cancel"
+        )
+        await callback.message.edit_text(
+            "Шаг 5/5: Когда напоминать о привычке?\n\n"
+            "<i>• Выбери готовое время или</i>\n"
+            "<i>• Введи вручную в формате ЧЧ:ММ (например: 08:30)</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+
+@router.callback_query(F.data == "fsm:retry")
+async def callback_fsm_retry(callback: types.CallbackQuery, state: FSMContext) -> None:
+    """Повторить текущий шаг после ошибки ввода."""
+    current_state = await state.get_state()
+    
+    if not current_state:
+        await callback.answer("Сессия завершена", show_alert=True)
+        return
+    
+    await callback.answer("Попробуй снова")
+    
+    # Просто удаляем сообщение об ошибке и просим ввести снова
+    # Текущее состояние не меняется
+    state_name = current_state.split(":")[-1]
+    
+    hints = {
+        "name": "Введи название привычки (2-100 символов):",
+        "description": "Введи описание (или нажми Пропустить):",
+        "reminder_time": "Введи время в формате ЧЧ:ММ (например: 08:30):"
+    }
+    
+    hint = hints.get(state_name, "Попробуй снова:")
+    
+    keyboard = get_fsm_navigation_keyboard(
+        show_back=state_name != "name",
+        back_callback="fsm:back",
+        cancel_callback="fsm:cancel"
+    )
+    
+    await callback.message.edit_text(
+        f"🔄 <b>Попробуем еще раз</b>\n\n{hint}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(F.data.startswith("time:"), AddHabitFSM.reminder_time)
@@ -378,6 +569,8 @@ async def process_reminder_time_callback(
     db: DatabaseService
 ) -> None:
     """Обработка выбора времени через callback."""
+    await callback.answer()
+    
     time_str = callback.data.split(":", 1)[1]
     
     if time_str == "none":
@@ -395,22 +588,64 @@ async def process_reminder_time_message(
     state: FSMContext,
     db: DatabaseService
 ) -> None:
-    """Обработка ввода времени вручную."""
-    time_str = message.text.strip()
-    
-    try:
-        hours, minutes = map(int, time_str.split(":"))
-        if not (0 <= hours < 24 and 0 <= minutes < 60):
-            raise ValueError
-        
-        await state.update_data(reminder_time=f"{hours:02d}:{minutes:02d}")
-        await save_habit_message(message, state, db)
-        
-    except ValueError:
+    """Обработка ввода времени вручную с улучшенной валидацией."""
+    # Проверяем, не является ли сообщение командой
+    if message.text and message.text.startswith('/'):
         await message.answer(
-            "❌ Неверный формат времени.\n"
-            "Введи время в формате ЧЧ:ММ (например: 08:30):"
+            "❌ Пожалуйста, используй кнопки или введи время вручную",
+            reply_markup=get_time_selection_keyboard(
+                back_callback="fsm:back",
+                cancel_callback="fsm:cancel"
+            )
         )
+        return
+    
+    time_str = message.text.strip() if message.text else ""
+    
+    # Подробная валидация времени
+    errors = []
+    
+    if not time_str:
+        errors.append("Время не указано")
+    else:
+        # Проверяем формат
+        if ":" not in time_str:
+            errors.append("Используй разделитель ':' (например: 08:30)")
+        else:
+            parts = time_str.split(":")
+            if len(parts) != 2:
+                errors.append("Неверный формат. Используй: ЧЧ:ММ")
+            else:
+                try:
+                    hours = int(parts[0])
+                    minutes = int(parts[1])
+                    
+                    if not (0 <= hours <= 23):
+                        errors.append(f"Часы должны быть от 0 до 23 (у тебя: {hours})")
+                    if not (0 <= minutes <= 59):
+                        errors.append(f"Минуты должны быть от 0 до 59 (у тебя: {minutes})")
+                        
+                except ValueError:
+                    errors.append("Часы и минуты должны быть числами")
+    
+    if errors:
+        error_text = "❌ <b>Ошибка в времени:</b>\n\n" + "\n".join(f"• {e}" for e in errors)
+        error_text += "\n\nПожалуйста, введи время снова:"
+        
+        keyboard = get_invalid_input_keyboard(
+            hint="Формат: ЧЧ:ММ (например: 08:30)",
+            back_callback="fsm:back",
+            cancel_callback="fsm:cancel"
+        )
+        await message.answer(error_text, reply_markup=keyboard, parse_mode="HTML")
+        return
+    
+    # Парсим время
+    hours, minutes = map(int, time_str.split(":"))
+    
+    # Сохраняем и создаем привычку
+    await state.update_data(reminder_time=f"{hours:02d}:{minutes:02d}")
+    await save_habit_message(message, state, db)
 
 
 async def save_habit(

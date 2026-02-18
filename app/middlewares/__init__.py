@@ -1,7 +1,10 @@
-"""
-Middleware для Aiogram.
-"""
+"""Middlewares package."""
 
-from app.middlewares.services import ServicesMiddleware
+from .services import ServicesMiddleware
+from .fsm_timeout import FSMTimeoutMiddleware, FSMStateHistory
 
-__all__ = ["ServicesMiddleware"]
+__all__ = [
+    "ServicesMiddleware",
+    "FSMTimeoutMiddleware",
+    "FSMStateHistory",
+]
