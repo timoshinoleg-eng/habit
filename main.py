@@ -13,7 +13,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 from app.config import settings
-from app.handlers import common_router, habits_router, ai_router
+from app.handlers import common_router, habits_router, ai_router, admin_router
 from app.middlewares import ServicesMiddleware
 from app.middlewares.fsm_timeout import FSMTimeoutMiddleware
 from app.services import DatabaseService, AIService, ReminderService
@@ -86,6 +86,7 @@ async def main() -> None:
     dp.include_router(common_router)
     dp.include_router(habits_router)
     dp.include_router(ai_router)
+    dp.include_router(admin_router)
     logger.info("Routers registered")
     
     # Установка команд бота

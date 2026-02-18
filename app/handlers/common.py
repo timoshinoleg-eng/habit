@@ -11,6 +11,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.services.database import DatabaseService
+from app.keyboards.reply_keyboards import get_main_menu_keyboard
 from app.services.streak_service import StreakService
 from app.models import Habit
 
@@ -129,6 +130,14 @@ async def cmd_start(
     ])
     
     await message.answer(welcome_text, reply_markup=keyboard, parse_mode="HTML")
+    
+    # Отправляем Reply клавиатуру отдельным сообщением (или редактируем)
+    # На самом деле лучше отправить одним сообщением, но Inline и Reply вместе не работают
+    # Поэтому отправим Reply клавиатуру вторым сообщением
+    await message.answer(
+        "👇 Используй кнопки ниже для быстрого доступа:",
+        reply_markup=get_main_menu_keyboard()
+    )
 
 
 @router.message(Command("help"))

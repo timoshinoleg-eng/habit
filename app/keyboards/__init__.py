@@ -9,6 +9,13 @@ from .fsm_keyboards import (
     get_confirmation_keyboard,
     get_invalid_input_keyboard,
 )
+from .reply_keyboards import (
+    get_main_menu_keyboard,
+    get_cancel_keyboard,
+    get_confirm_cancel_keyboard,
+    remove_keyboard,
+    get_admin_menu_keyboard,
+)
 
 __all__ = [
     "get_fsm_navigation_keyboard",
@@ -18,4 +25,9 @@ __all__ = [
     "get_time_selection_keyboard",
     "get_confirmation_keyboard",
     "get_invalid_input_keyboard",
+    "get_main_menu_keyboard",
+    "get_cancel_keyboard",
+    "get_confirm_cancel_keyboard",
+    "remove_keyboard",
+    "get_admin_menu_keyboard",
 ]
