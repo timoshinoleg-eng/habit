@@ -5,10 +5,11 @@
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Tuple
 
 import pytz
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError, TelegramNotFound
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -57,10 +58,10 @@ class ReminderService:
         logger.info("Reminder scheduler started")
     
     async def stop(self) -> None:
-        """Остановка планировщика."""
+        """Остановка планировщика с ожиданием завершения текущих задач."""
         if self.scheduler:
-            self.scheduler.shutdown()
-            logger.info("Reminder scheduler stopped")
+            self.scheduler.shutdown(wait=True)
+            logger.info("Reminder scheduler stopped gracefully")
     
     async def _check_and_send_reminders(self) -> None:
         """Проверка и отправка напоминаний (вызывается каждую минуту)."""
@@ -124,10 +125,26 @@ class ReminderService:
                         parse_mode="HTML"
                     )
                     
-                    logger.debug(f"Reminder sent to user {user.id} for habit {habit.id}")
+                    logger.info(f"✅ Reminder sent to user {user.id} for habit {habit.id}")
                     
+                except TelegramForbiddenError:
+                    # Пользователь заблокировал бота - отключаем уведомления
+                    logger.warning(f"🚫 User {user.id} blocked the bot. Disabling notifications.")
+                    try:
+                        await self.db.update_user(user.id, notification_enabled=False)
+                    except Exception as db_err:
+                        logger.error(f"Failed to disable notifications for user {user.id}: {db_err}")
+                        
+                except TelegramNotFound:
+                    # Пользователь удалил чат
+                    logger.warning(f"🚫 Chat not found for user {user.id}. Disabling notifications.")
+                    try:
+                        await self.db.update_user(user.id, notification_enabled=False)
+                    except Exception as db_err:
+                        logger.error(f"Failed to disable notifications for user {user.id}: {db_err}")
+                        
                 except Exception as e:
-                    logger.error(f"Failed to send reminder to {user.id}: {e}")
+                    logger.error(f"❌ Failed to send reminder to {user.id}: {e}", exc_info=True)
                     
         except Exception as e:
             logger.error(f"Error in reminder check: {e}")

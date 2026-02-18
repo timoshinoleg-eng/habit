@@ -37,13 +37,15 @@ class AIService:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Получение HTTP-сессии (lazy initialization)."""
         if self._session is None or self._session.closed:
+            timeout = aiohttp.ClientTimeout(total=30, connect=10)
             self._session = aiohttp.ClientSession(
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                     "HTTP-Referer": "https://habitmax-bot.local",
                     "X-Title": "HabitMax Telegram Bot"
-                }
+                },
+                timeout=timeout
             )
         return self._session
     

@@ -6,7 +6,7 @@
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 
-from sqlalchemy import select, update, delete, func, and_, desc
+from sqlalchemy import select, update, delete, func, and_, or_, desc
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.config import settings
@@ -358,25 +358,58 @@ class DatabaseService:
     
     async def get_habits_for_reminder(
         self,
-        current_time: datetime
+        current_time: datetime,
+        window_minutes: int = 5
     ) -> List[tuple[Habit, User]]:
-        """Получение привычек для напоминаний на текущее время."""
+        """
+        Получение привычек для напоминаний на текущее время.
+        
+        Оптимизировано: фильтрация по времени происходит в SQL.
+        Проверяет привычки с reminder_time в окне [current_time - window_minutes, current_time + window_minutes]
+        """
         async with self.session_factory() as session:
             from sqlalchemy.orm import joinedload
+            from sqlalchemy import cast, Time
             import pytz
             
-            result = await session.execute(
+            # Вычисляем границы окна времени
+            time_window_start = (current_time - timedelta(minutes=window_minutes)).time()
+            time_window_end = (current_time + timedelta(minutes=window_minutes)).time()
+            
+            # Базовый запрос с оптимизацией
+            # Используем cast для корректного сравнения Time полей
+            query = (
                 select(Habit, User)
                 .join(User)
                 .where(
                     and_(
                         Habit.is_active == True,
+                        Habit.is_paused == False,
                         Habit.reminder_time.isnot(None),
                         User.notification_enabled == True
                     )
                 )
                 .options(joinedload(Habit.user))
             )
+            
+            # Добавляем фильтр по времени если окно не пересекает полночь
+            if time_window_start <= time_window_end:
+                query = query.where(
+                    and_(
+                        cast(Habit.reminder_time, Time) >= time_window_start,
+                        cast(Habit.reminder_time, Time) <= time_window_end
+                    )
+                )
+            # Если окно пересекает полночь (например, 23:55 - 00:05), используем OR
+            else:
+                query = query.where(
+                    or_(
+                        cast(Habit.reminder_time, Time) >= time_window_start,
+                        cast(Habit.reminder_time, Time) <= time_window_end
+                    )
+                )
+            
+            result = await session.execute(query)
             
             habits_users = []
             for habit, user in result.all():

@@ -34,6 +34,18 @@ class User(Base):
     notification_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     
+    # Настройки серии (streak)
+    streak_break_days: Mapped[int] = mapped_column(
+        Integer, 
+        default=2,
+        comment="Количество дней без выполнения для сброса серии (1/2/3 или 0=никогда)"
+    )
+    last_streak_check: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="Последняя проверка серий"
+    )
+    
     # Статистика
     streak_days: Mapped[int] = mapped_column(Integer, default=0)
     total_completions: Mapped[int] = mapped_column(Integer, default=0)

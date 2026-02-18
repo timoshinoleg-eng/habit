@@ -4,20 +4,74 @@
 """
 
 import logging
+from typing import List, Tuple
 
 from aiogram import Router, F, types
 from aiogram.filters import Command, CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.services.database import DatabaseService
+from app.services.streak_service import StreakService
+from app.models import Habit
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 
+async def notify_broken_streaks(
+    message: types.Message, 
+    broken: List[Tuple[Habit, int]]
+) -> None:
+    """Отправка уведомлений о сброшенных сериях."""
+    if not broken:
+        return
+    
+    # Формируем сообщение
+    if len(broken) == 1:
+        habit, old_streak = broken[0]
+        text = (
+            f"😔 <b>Серия прервана</b>\n\n"
+            f"{habit.emoji} <b>{habit.name}</b>\n"
+            f"Серия из <b>{old_streak} дней</b> сброшена.\n\n"
+            f"Не расстраивайся! Начни новую серию прямо сейчас 💪"
+        )
+    else:
+        text = (
+            f"😔 <b>Несколько серий прервано</b>\n\n"
+            f"Сброшены серии:\n"
+        )
+        for habit, old_streak in broken:
+            text += f"• {habit.emoji} {habit.name}: {old_streak} дней\n"
+        text += "\nНе сдавайся! Начни заново 💪"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="📋 Мои привычки",
+                callback_data="list_habits"
+            ),
+            InlineKeyboardButton(
+                text="🤖 AI-совет",
+                callback_data="ai_advice"
+            )
+        ]
+    ])
+    
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+
 @router.message(CommandStart())
-async def cmd_start(message: types.Message, db: DatabaseService) -> None:
+async def cmd_start(
+    message: types.Message, 
+    db: DatabaseService,
+    **kwargs
+) -> None:
     """Обработчик команды /start."""
+    # Проверяем, есть ли уведомление о сброшенных сериях
+    broken = kwargs.get("_broken_streaks")
+    if broken:
+        await notify_broken_streaks(message, broken)
+    
     user = message.from_user
     
     # Регистрация пользователя

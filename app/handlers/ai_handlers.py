@@ -11,6 +11,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.services.database import DatabaseService
 from app.services.ai_service import AIService
+from app.services.rate_limiter import ai_rate_limiter
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -19,6 +20,12 @@ router = Router()
 @router.message(Command("ai_advice"))
 async def cmd_ai_advice(message: types.Message, db: DatabaseService, ai: AIService) -> None:
     """Получить AI-рекомендацию."""
+    # Проверяем rate limit
+    allowed, reason = ai_rate_limiter.check_rate_limit(message.from_user.id)
+    if not allowed:
+        await message.answer(f"❌ {reason}")
+        return
+    
     # Показываем, что AI "думает"
     thinking_msg = await message.answer("🤖 AI анализирует твои привычки...")
     
@@ -32,6 +39,9 @@ async def cmd_ai_advice(message: types.Message, db: DatabaseService, ai: AIServi
         
         # Получаем рекомендацию
         recommendation = await ai.get_habit_recommendation(user)
+        
+        # Записываем успешный запрос в rate limiter
+        ai_rate_limiter.record_request(message.from_user.id)
         
         # Удаляем сообщение о загрузке
         await thinking_msg.delete()
@@ -85,6 +95,12 @@ async def callback_ai_advice(
     ai: AIService
 ) -> None:
     """AI-совет через callback."""
+    # Проверяем rate limit
+    allowed, reason = ai_rate_limiter.check_rate_limit(callback.from_user.id)
+    if not allowed:
+        await callback.answer(f"❌ {reason}", show_alert=True)
+        return
+    
     await callback.answer("🤖 Думаю...")
     
     try:
@@ -97,6 +113,9 @@ async def callback_ai_advice(
         
         # Получаем рекомендацию
         recommendation = await ai.get_habit_recommendation(user)
+        
+        # Записываем успешный запрос
+        ai_rate_limiter.record_request(callback.from_user.id)
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -141,6 +160,12 @@ async def cmd_analyze_patterns(
     ai: AIService
 ) -> None:
     """Анализ паттернов пользователя."""
+    # Проверяем rate limit
+    allowed, reason = ai_rate_limiter.check_rate_limit(message.from_user.id)
+    if not allowed:
+        await message.answer(f"❌ {reason}")
+        return
+    
     analyzing_msg = await message.answer(
         "📊 Анализирую твои паттерны...\n"
         "Это может занять несколько секунд."
@@ -151,6 +176,9 @@ async def cmd_analyze_patterns(
         patterns = await ai.analyze_user_patterns(message.from_user.id)
         
         await analyzing_msg.delete()
+        
+        # Записываем успешный запрос
+        ai_rate_limiter.record_request(message.from_user.id)
         
         if not patterns:
             await message.answer(

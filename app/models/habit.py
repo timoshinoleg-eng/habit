@@ -77,6 +77,11 @@ class Habit(Base):
     
     # Статус
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_paused: Mapped[bool] = mapped_column(
+        Boolean, 
+        default=False,
+        comment="Приостановлена ли привычка (временно отключена)"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     # AI-контекст
