@@ -1,0 +1,31 @@
+# Core
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Telegram Bot
+aiogram>=3.2.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.23
+aiosqlite>=0.19.0
+alembic>=1.12.1
+
+# Async HTTP для OpenRouter
+aiohttp>=3.9.0
+
+# Scheduler для напоминан
+apscheduler>=3.10.4
+
+# Logging
+structlog>=23.2.0
+
+# Date/Time
+python-dateutil>=2.8.2
+pytz>=2023.3
+
+# Development (опционально)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+ruff>=0.1.0
