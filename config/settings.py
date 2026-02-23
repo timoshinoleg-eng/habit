@@ -13,10 +13,10 @@ BASE_DIR = Path(__file__).parent.parent
 env_path = BASE_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
-# Bot settings
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+# Bot settings (support both TELEGRAM_BOT_TOKEN and BOT_TOKEN)
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN", "")
 if not BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set!")
+    raise ValueError("TELEGRAM_BOT_TOKEN or BOT_TOKEN environment variable is not set!")
 
 # Database settings
 DATABASE_URL = os.getenv(
