@@ -6,11 +6,12 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
 # Base paths
 BASE_DIR = Path(__file__).parent.parent
+
+# Load environment variables from .env file
+env_path = BASE_DIR / '.env'
+load_dotenv(dotenv_path=env_path)
 
 # Bot settings
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
