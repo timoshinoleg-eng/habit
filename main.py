@@ -72,8 +72,14 @@ async def main():
     scheduler = AsyncIOScheduler(timezone='Europe/Moscow')
     
     # Register startup handler
-    dp.startup.register(lambda dispatcher: on_startup(bot, dispatcher, scheduler))
-    dp.shutdown.register(lambda dispatcher: on_shutdown())
+    async def _on_startup(dispatcher: Dispatcher):
+        await on_startup(bot, dispatcher, scheduler)
+    
+    async def _on_shutdown(dispatcher: Dispatcher):
+        await on_shutdown()
+    
+    dp.startup.register(_on_startup)
+    dp.shutdown.register(_on_shutdown)
     
     # Register middleware
     dp.message.middleware(DatabaseMiddleware())
